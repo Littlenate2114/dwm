@@ -739,19 +739,16 @@ drawbar(Monitor *m)
 	drw_text(drw, x, 0, w, bh, m->ltsymbol, 0);
 	x += w;
 	xx = x;
-	if (m == selmon) { /* status is only drawn on selected monitor */
-		w = TEXTW(stext);
-		x = m->ww - w;
-		if (x < xx) {
-			x = xx;
-			w = m->ww - xx;
-		}
-		drw_text(drw, x, 0, w, bh, stext, 0);
-	} else
-		x = m->ww;
+	w = TEXTW(stext);
+  x = m->ww - w;
+  if(x < xx) {
+    x = xx;
+    w = m->ww - xx;
+	}
+  drw_text(drw, x, 0, w, bh, stext, 0);
 	if ((w = x - xx) > bh) {
 		x = xx;
-		if (n > 0) {
+		if (m->sel) {
 			tw = m->sel->name ? TEXTW(m->sel->name) : 0;
 			mw = (tw >= w || n == 1) ? 0 : (w - tw) / (n - 1);
 
