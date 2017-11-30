@@ -17,6 +17,7 @@ static const unsigned int borderpx  = 1;        /* border pixel of windows */
 static const unsigned int snap      = 32;       /* snap pixel */
 static const int showbar            = 1;        /* 0 means no bar */
 static const int topbar             = 1;        /* 0 means bottom bar */
+static const Bool viewontag         = True;
 
 /* tagging */
 static const char *tags[] = { "web", "shell", "music", "gimp", "other", "6", "7", "8", "9" };
