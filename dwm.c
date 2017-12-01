@@ -57,8 +57,6 @@
 #define TAGMASK                 ((1 << LENGTH(tags)) - 1)
 #define TEXTW(X)                (drw_text(drw, 0, 0, 0, 0, (X), 0) + drw->fonts[0]->h)
 
-#define OPAQUE                  0xffU
-
 /* enums */
 enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
 enum { SchemeNorm, SchemeSel, SchemeLast }; /* color schemes */
@@ -89,6 +87,7 @@ typedef struct Client Client;
 struct Client {
 	char name[256];
 	float mina, maxa;
+	float cfact;
 	int x, y, w, h;
 	int oldx, oldy, oldw, oldh;
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh;
@@ -203,6 +202,7 @@ static void setclientstate(Client *c, long state);
 static void setfocus(Client *c);
 static void setfullscreen(Client *c, int fullscreen);
 static void setlayout(const Arg *arg);
+static void setcfact(const Arg *arg);
 static void setmfact(const Arg *arg);
 static void setup(void);
 static void showhide(Client *c);
@@ -234,7 +234,6 @@ static Monitor *wintomon(Window w);
 static int xerror(Display *dpy, XErrorEvent *ee);
 static int xerrordummy(Display *dpy, XErrorEvent *ee);
 static int xerrorstart(Display *dpy, XErrorEvent *ee);
-static void xinitvisual();
 static void zoom(const Arg *arg);
 
 /* variables */
@@ -269,11 +268,6 @@ static Display *dpy;
 static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root;
-
-static int useargb = 0;
-static Visual *visual;
-static int depth;
-static Colormap cmap;
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
@@ -712,15 +706,13 @@ dirtomon(int dir)
 void
 drawbar(Monitor *m)
 {
-	int x, xx, w, dx, tw, mw;
-	unsigned int i, occ = 0, urg = 0, n = 0, extra = 0;
+	int x, xx, w, dx;
+	unsigned int i, occ = 0, urg = 0;
 	Client *c;
 
 	dx = (drw->fonts[0]->ascent + drw->fonts[0]->descent + 2) / 4;
 
 	for (c = m->clients; c; c = c->next) {
-		if (ISVISIBLE(c))
-			n++;
 		occ |= c->tags;
 		if (c->isurgent)
 			urg |= c->tags;
@@ -739,49 +731,26 @@ drawbar(Monitor *m)
 	drw_text(drw, x, 0, w, bh, m->ltsymbol, 0);
 	x += w;
 	xx = x;
-	w = TEXTW(stext);
-  x = m->ww - w;
-  if(x < xx) {
-    x = xx;
-    w = m->ww - xx;
-	}
-  drw_text(drw, x, 0, w, bh, stext, 0);
+	if (m == selmon) { /* status is only drawn on selected monitor */
+		w = TEXTW(stext);
+		x = m->ww - w;
+		if (x < xx) {
+			x = xx;
+			w = m->ww - xx;
+		}
+		drw_text(drw, x, 0, w, bh, stext, 0);
+	} else
+		x = m->ww;
 	if ((w = x - xx) > bh) {
 		x = xx;
 		if (m->sel) {
-			tw = m->sel->name ? TEXTW(m->sel->name) : 0;
-			mw = (tw >= w || n == 1) ? 0 : (w - tw) / (n - 1);
-
-			i = 0;
-			for (c = m->clients; c; c = c->next) {
-				if (!ISVISIBLE(c) || c == m->sel)
-					continue;
-				tw = TEXTW(c->name);
-				if(tw < mw)
-					extra += (mw - tw);
-				else
-					i++;
-			}
-			if (i > 0)
-				mw += extra / i;
-
-			for (c = m->clients; c; c = c->next) {
-				if (!ISVISIBLE(c))
-					continue;
-				xx = x + w;
-				tw = TEXTW(c->name);
-				w = MIN(m->sel == c ? w : mw, tw);
-
-				drw_setscheme(drw, m->sel == c ? &scheme[SchemeSel] : &scheme[SchemeNorm]);
-				drw_text(drw, x, 0, w, bh, c->name, 0);
-				drw_rect(drw, x + 1, 1, dx, dx, c->isfixed, c->isfloating, 0);
-
-				x += w;
-				w = xx - x;
-			}
+			drw_setscheme(drw, m == selmon ? &scheme[SchemeSel] : &scheme[SchemeNorm]);
+			drw_text(drw, x, 0, w, bh, m->sel->name, 0);
+			drw_rect(drw, x + 1, 1, dx, dx, m->sel->isfixed, m->sel->isfloating, 0);
+		} else {
+			drw_setscheme(drw, &scheme[SchemeNorm]);
+			drw_rect(drw, x, 0, w, bh, 1, 0, 1);
 		}
-		drw_setscheme(drw, &scheme[SchemeNorm]);
-		drw_rect(drw, x, 0, w, bh, 1, 0, 1);
 	}
 	drw_map(drw, m->barwin, 0, 0, m->ww, bh);
 }
@@ -1085,6 +1054,7 @@ manage(Window w, XWindowAttributes *wa)
 	c->w = c->oldw = wa->width;
 	c->h = c->oldh = wa->height;
 	c->oldbw = wa->border_width;
+	c->cfact = 1.0;
 
 	if (c->x + WIDTH(c) > c->mon->mx + c->mon->mw)
 		c->x = c->mon->mx + c->mon->mw - WIDTH(c);
@@ -1561,6 +1531,23 @@ setlayout(const Arg *arg)
 		drawbar(selmon);
 }
 
+void setcfact(const Arg *arg) {
+	float f;
+	Client *c;
+
+	c = selmon->sel;
+
+	if(!arg || !c || !selmon->lt[selmon->sellt]->arrange)
+		return;
+	f = arg->f + c->cfact;
+	if(arg->f == 0.0)
+		f = 1.0;
+	else if(f < 0.25 || f > 4.0)
+		return;
+	c->cfact = f;
+	arrange(selmon);
+}
+
 /* arg > 1.0 will set mfact absolutly */
 void
 setmfact(const Arg *arg)
@@ -1589,8 +1576,7 @@ setup(void)
 	sw = DisplayWidth(dpy, screen);
 	sh = DisplayHeight(dpy, screen);
 	root = RootWindow(dpy, screen);
-	xinitvisual();
-	drw = drw_create(dpy, screen, root, sw, sh, visual, depth, cmap);
+	drw = drw_create(dpy, screen, root, sw, sh);
 	drw_load_fonts(drw, fonts, LENGTH(fonts));
 	if (!drw->fontcount)
 		die("no fonts could be loaded.\n");
@@ -1614,12 +1600,12 @@ setup(void)
 	cursor[CurResize] = drw_cur_create(drw, XC_sizing);
 	cursor[CurMove] = drw_cur_create(drw, XC_fleur);
 	/* init appearance */
-	scheme[SchemeNorm].border = drw_clr_create(drw, normbordercolor, borderalpha);
-	scheme[SchemeNorm].bg = drw_clr_create(drw, normbgcolor, baralpha);
-	scheme[SchemeNorm].fg = drw_clr_create(drw, normfgcolor, OPAQUE);
-	scheme[SchemeSel].border = drw_clr_create(drw, selbordercolor, borderalpha);
-	scheme[SchemeSel].bg = drw_clr_create(drw, selbgcolor, baralpha);
-	scheme[SchemeSel].fg = drw_clr_create(drw, selfgcolor, OPAQUE);
+	scheme[SchemeNorm].border = drw_clr_create(drw, normbordercolor);
+	scheme[SchemeNorm].bg = drw_clr_create(drw, normbgcolor);
+	scheme[SchemeNorm].fg = drw_clr_create(drw, normfgcolor);
+	scheme[SchemeSel].border = drw_clr_create(drw, selbordercolor);
+	scheme[SchemeSel].bg = drw_clr_create(drw, selbgcolor);
+	scheme[SchemeSel].fg = drw_clr_create(drw, selfgcolor);
 	/* init bars */
 	updatebars();
 	updatestatus();
@@ -1686,8 +1672,6 @@ tag(const Arg *arg)
 		selmon->sel->tags = arg->ui & TAGMASK;
 		focus(NULL);
 		arrange(selmon);
-		if(viewontag)
-			view(arg);
 	}
 }
 
@@ -1703,9 +1687,15 @@ void
 tile(Monitor *m)
 {
 	unsigned int i, n, h, mw, my, ty;
+	float mfacts = 0, sfacts = 0;
 	Client *c;
 
-	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++) {
+		if (n < m->nmaster)
+			mfacts += c->cfact;
+		else
+			sfacts += c->cfact;
+	}
 	if (n == 0)
 		return;
 
@@ -1715,13 +1705,15 @@ tile(Monitor *m)
 		mw = m->ww;
 	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
 		if (i < m->nmaster) {
-			h = (m->wh - my) / (MIN(n, m->nmaster) - i);
+			h = (m->wh - my) * (c->cfact / mfacts);
 			resize(c, m->wx, m->wy + my, mw - (2*c->bw), h - (2*c->bw), 0);
 			my += HEIGHT(c);
+			mfacts -= c->cfact;
 		} else {
-			h = (m->wh - ty) / (n - i);
+			h = (m->wh - ty) / (c->cfact / sfacts);
 			resize(c, m->wx + mw, m->wy + ty, m->ww - mw - (2*c->bw), h - (2*c->bw), 0);
 			ty += HEIGHT(c);
+			sfacts -= c->cfact;
 		}
 }
 
@@ -1834,17 +1826,15 @@ updatebars(void)
 	Monitor *m;
 	XSetWindowAttributes wa = {
 		.override_redirect = True,
-		.background_pixel = 0,
-		.border_pixel = 0,
-		.colormap = cmap,
+		.background_pixmap = ParentRelative,
 		.event_mask = ButtonPressMask|ExposureMask
 	};
 	for (m = mons; m; m = m->next) {
 		if (m->barwin)
 			continue;
-		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bh, 0, depth,
-		                          InputOutput, visual,
-		                          CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWColormap|CWEventMask, &wa);
+		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bh, 0, DefaultDepth(dpy, screen),
+		                          CopyFromParent, DefaultVisual(dpy, screen),
+		                          CWOverrideRedirect|CWBackPixmap|CWEventMask, &wa);
 		XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
 		XMapRaised(dpy, m->barwin);
 	}
@@ -2142,43 +2132,6 @@ xerrorstart(Display *dpy, XErrorEvent *ee)
 {
 	die("dwm: another window manager is already running\n");
 	return -1;
-}
-
-void
-xinitvisual()
-{
-	XVisualInfo *infos;
-	XRenderPictFormat *fmt;
-	int nitems;
-	int i;
-
-	XVisualInfo tpl = {
-		.screen = screen,
-		.depth = 32,
-		.class = TrueColor
-	};
-	long masks = VisualScreenMask | VisualDepthMask | VisualClassMask;
-
-	infos = XGetVisualInfo(dpy, masks, &tpl, &nitems);
-	visual = NULL;
-	for(i = 0; i < nitems; i ++) {
-		fmt = XRenderFindVisualFormat(dpy, infos[i].visual);
-		if (fmt->type == PictTypeDirect && fmt->direct.alphaMask) {
-			visual = infos[i].visual;
-			depth = infos[i].depth;
-			cmap = XCreateColormap(dpy, root, visual, AllocNone);
-			useargb = 1;
-			break;
-		}
-	}
-
-	XFree(infos);
-
-	if (! visual) {
-		visual = DefaultVisual(dpy, screen);
-		depth = DefaultDepth(dpy, screen);
-		cmap = DefaultColormap(dpy, screen);
-	}
 }
 
 void
