@@ -2,15 +2,15 @@
 
 /* appearance */
 static const char *fonts[] = {
-	"terminus:size=10"
+	"terminus:size=12"
 };
-static const char dmenufont[]       = "terminus:size=10";
+static const char dmenufont[]       = "terminus:size=12";
 static const char normbordercolor[] = "#444444";
-static const char normbgcolor[]     = "#101010";
+static const char normbgcolor[]     = "#000";
 static const char normfgcolor[]     = "#bbbbbb";
-static const char selbordercolor[]  = "#d17b49";
-static const char selbgcolor[]      = "#101010";
-static const char selfgcolor[]      = "#d17b49";
+static const char selbordercolor[]  = "#383838";
+static const char selbgcolor[]      = "#383838";
+static const char selfgcolor[]      = "#eeeeee";
 static const unsigned int borderpx  = 2;        /* border pixel of windows */
 static const unsigned int snap      = 32;       /* snap pixel */
 static const int showbar            = 1;        /* 0 means no bar */
@@ -56,7 +56,7 @@ static const Layout layouts[] = {
 /* commands */
 static char dmenumon[2] = "0"; /* component of dmenucmd, manipulated in spawn() */
 static const char *dmenucmd[] = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont, "-nb", normbgcolor, "-nf", normfgcolor, "-sb", selbgcolor, "-sf", selfgcolor, NULL };
-static const char *termcmd[]  = { "gnome-terminal", NULL };
+static const char *termcmd[]  = { "terminator", NULL };
 static const char *getsong[]  = { "song", NULL };
 
 static Key keys[] = {
